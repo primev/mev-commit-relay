@@ -1774,9 +1774,8 @@ func (api *RelayAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 					return false
 				}
 			} else if !builderCacheEntry.mevCommitOptInStatus {
-					api.RespondError(w, http.StatusBadRequest, "Builder pubkey is not opted into mev-commit")
-					return false
-				}
+				api.RespondError(w, http.StatusBadRequest, "Builder pubkey is not opted into mev-commit")
+				return false
 			}
 		}
 		duration := time.Since(start)
