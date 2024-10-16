@@ -170,7 +170,7 @@ type blockSimResult struct {
 	blockValue           *uint256.Int
 	optimisticSubmission bool
 	requestErr           error
-	validationErr        error ``
+	validationErr        error
 }
 
 // RelayAPI represents a single Relay instance
