@@ -103,7 +103,6 @@ func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys []string) ([]bool,
 
 	pubkeysBytes := make([][]byte, len(pubkeys))
 	for i, pubkey := range pubkeys {
-		// TODO(@ckartik): Make sure encoding is correct
 		pubkeysBytes[i] = common.Hex2Bytes(pubkey)
 	}
 
