@@ -100,10 +100,9 @@ func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys []string) ([]bool,
 	opts := &bind.CallOpts{
 		BlockNumber: big.NewInt(int64(currentBlockNumber - 64)),
 	}
-
 	pubkeysBytes := make([][]byte, len(pubkeys))
 	for i, pubkey := range pubkeys {
-		pubkeysBytes[i] = common.Hex2Bytes(pubkey)
+		pubkeysBytes[i] = common.Hex2Bytes(strings.TrimPrefix(pubkey, "0x"))
 	}
 
 	return m.validatorOptInRouterCaller.AreValidatorsOptedIn(opts, pubkeysBytes)

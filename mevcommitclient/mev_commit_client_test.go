@@ -95,10 +95,16 @@ func TestGetOptInStatusForSpecificValidator(t *testing.T) {
 	require.NoError(t, err)
 
 	// Specific validator public key we know is opted in
-	pubkey := "a7884bb9b06b912ec80d14e408cd88282f813547082b7a86bc1dd9c1881e29a781314f1f9108d6059a7ec10852e14028"
-
+	pubkey := "0xa7884bb9b06b912ec80d14e408cd88282f813547082b7a86bc1dd9c1881e29a781314f1f9108d6059a7ec10852e14028"
 	statuses, err := client.GetOptInStatusForValidators([]string{pubkey})
 	require.NoError(t, err)
 	require.Len(t, statuses, 1)
 	assert.True(t, statuses[0], "Expected opt-in status to be true")
+
+	pubkeyWithoutPrefix := "a7884bb9b06b912ec80d14e408cd88282f813547082b7a86bc1dd9c1881e29a781314f1f9108d6059a7ec10852e14028"
+	statuses, err = client.GetOptInStatusForValidators([]string{pubkeyWithoutPrefix})
+	require.NoError(t, err)
+	require.Len(t, statuses, 1)
+	assert.True(t, statuses[0], "Expected opt-in status to be true")
+
 }
