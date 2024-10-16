@@ -25,8 +25,7 @@ var (
 	redisScheme = "redis://"
 	redisPrefix = "boost-relay"
 
-	mevCommitValidatorRegistrationExpiry = 1 * time.Hour
-	expiryBidCache                       = 45 * time.Second
+	expiryBidCache = 45 * time.Second
 
 	RedisConfigFieldPubkey         = "pubkey"
 	RedisStatsFieldLatestSlot      = "latest-slot"
@@ -96,9 +95,8 @@ type RedisCache struct {
 	prefixFloorBidValue               string
 
 	// keys
-	keyValidatorRegistrationTimestamp     string
-	keyMevCommitValidatorRegistrationHash string
-	keyMevCommitBlockBuilder              string
+	keyValidatorRegistrationTimestamp string
+	keyMevCommitBlockBuilder          string
 
 	keyRelayConfig        string
 	keyStats              string
@@ -138,10 +136,9 @@ func NewRedisCache(prefix, redisURI, readonlyURI string) (*RedisCache, error) {
 		prefixFloorBid:                    fmt.Sprintf("%s/%s:bid-floor", redisPrefix, prefix),                      // prefix:slot_parentHash_proposerPubkey
 		prefixFloorBidValue:               fmt.Sprintf("%s/%s:bid-floor-value", redisPrefix, prefix),                // prefix:slot_parentHash_proposerPubkey
 
-		keyValidatorRegistrationTimestamp:     fmt.Sprintf("%s/%s:validator-registration-timestamp", redisPrefix, prefix),
-		keyMevCommitValidatorRegistrationHash: fmt.Sprintf("%s/%s:mev-commit-validator-registration", redisPrefix, prefix),
-		keyMevCommitBlockBuilder:              fmt.Sprintf("%s/%s:mev-commit-block-builder", redisPrefix, prefix),
-		keyRelayConfig:                        fmt.Sprintf("%s/%s:relay-config", redisPrefix, prefix),
+		keyValidatorRegistrationTimestamp: fmt.Sprintf("%s/%s:validator-registration-timestamp", redisPrefix, prefix),
+		keyMevCommitBlockBuilder:          fmt.Sprintf("%s/%s:mev-commit-block-builder", redisPrefix, prefix),
+		keyRelayConfig:                    fmt.Sprintf("%s/%s:relay-config", redisPrefix, prefix),
 
 		keyStats:              fmt.Sprintf("%s/%s:stats", redisPrefix, prefix),
 		keyProposerDuties:     fmt.Sprintf("%s/%s:proposer-duties", redisPrefix, prefix),
