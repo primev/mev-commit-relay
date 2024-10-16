@@ -149,7 +149,7 @@ func (hk *Housekeeper) processNewSlot(headSlot uint64) {
 
 	// Update proposer duties
 	go hk.updateProposerDuties(headSlot)
-	go hk.updateMevCommitValidatorRegistrations(headSlot)
+
 	go hk.cleanupMevCommitBuilderRegistrations()
 
 	// Set headSlot in redis (for the website)
@@ -288,15 +288,22 @@ func (hk *Housekeeper) UpdateProposerDutiesWithoutChecks(headSlot uint64) {
 		signedValidatorRegistrations[regEntry.Pubkey] = signedEntry
 	}
 
+	booleanValidatorRegistrationsArray, err := hk.mevCommitClient.GetOptInStatusForValidators(pubkeys)
+	if err != nil {
+		hk.log.WithError(err).Error("failed to get registered validators from mev-commit client")
+		return
+	}
+
 	// Prepare proposer duties
 	proposerDuties := []common.BuilderGetValidatorsResponseEntry{}
-	for _, duty := range entries {
+	for i, duty := range entries {
 		reg := signedValidatorRegistrations[duty.Pubkey]
 		if reg != nil {
 			proposerDuties = append(proposerDuties, common.BuilderGetValidatorsResponseEntry{
-				Slot:           duty.Slot,
-				ValidatorIndex: duty.ValidatorIndex,
-				Entry:          reg,
+				Slot:                 duty.Slot,
+				ValidatorIndex:       duty.ValidatorIndex,
+				Entry:                reg,
+				IsMevCommitValidator: booleanValidatorRegistrationsArray[i],
 			})
 		}
 	}
@@ -316,48 +323,6 @@ func (hk *Housekeeper) UpdateProposerDutiesWithoutChecks(headSlot uint64) {
 	}
 	sort.Strings(_duties)
 	log.WithField("numDuties", len(_duties)).Infof("proposer duties updated: %s", strings.Join(_duties, ", "))
-}
-
-// When the update is triggered, we store registered validators in Redis for an the current and next epoch.
-// This allows us to maintain 1 epoch in advance, which is enough to check if a validator is registered for a given epoch.
-func (hk *Housekeeper) updateMevCommitValidatorRegistrations(headSlot uint64) {
-	// Only update once per epoch - at the epoch start of the epoch
-	if headSlot%common.SlotsPerEpoch != 0 {
-		return
-	}
-
-	epoch := headSlot / common.SlotsPerEpoch
-
-	duties, err := hk.beaconClient.GetProposerDuties(epoch)
-	if err != nil {
-		hk.log.WithError(err).Error("failed to get proposer duties for epoch")
-		return
-	}
-	nextDuties, err := hk.beaconClient.GetProposerDuties(epoch + 1)
-	if err != nil {
-		hk.log.WithError(err).Error("failed to get proposer duties for next epoch")
-		return
-	}
-	// Combine duties from current and next epoch into a single array
-	duties.Data = append(duties.Data, nextDuties.Data...)
-
-	pubkeys := [][]byte{}
-	for _, duty := range duties.Data {
-		pubkeys = append(pubkeys, []byte(duty.Pubkey))
-	}
-
-	registeredValidators, err := hk.mevCommitClient.GetOptInStatusForValidators(pubkeys)
-	if err != nil {
-		hk.log.WithError(err).Error("failed to get registered validators from mev-commit client")
-		return
-	}
-	for i, registeredValidator := range registeredValidators {
-		if registeredValidator {
-			hk.redis.SetMevCommitValidatorRegistration(common.NewPubkeyHex(duties.Data[i].Pubkey))
-		}
-	}
-
-	hk.log.WithField("numValidators", len(registeredValidators)).Info("updated mev-commit registered validators in Redis")
 }
 
 // updateValidatorRegistrationsInRedis saves all latest validator registrations from the database to Redis

@@ -23,7 +23,7 @@ type MevCommitProvider struct {
 }
 
 type IMevCommitClient interface {
-	GetOptInStatusForValidators(pubkeys [][]byte) ([]bool, error)
+	GetOptInStatusForValidators(pubkeys []string) ([]bool, error)
 	ListenForBuildersEvents() (<-chan MevCommitProvider, <-chan common.Address, error)
 	IsBuilderValid(builderAddress common.Address) (bool, error)
 }
@@ -90,7 +90,7 @@ func NewMevCommitClient(l1MainnetURL, mevCommitURL string, validatorRouterAddres
 	}, nil
 }
 
-func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys [][]byte) ([]bool, error) {
+func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys []string) ([]bool, error) {
 	// Get the finalized block number
 	currentBlockNumber, err := m.l1Client.BlockNumber(context.Background())
 	if err != nil {
@@ -101,7 +101,13 @@ func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys [][]byte) ([]bool,
 		BlockNumber: big.NewInt(int64(currentBlockNumber - 64)),
 	}
 
-	return m.validatorOptInRouterCaller.AreValidatorsOptedIn(opts, pubkeys)
+	pubkeysBytes := make([][]byte, len(pubkeys))
+	for i, pubkey := range pubkeys {
+		// TODO(@ckartik): Make sure encoding is correct
+		pubkeysBytes[i] = common.Hex2Bytes(pubkey)
+	}
+
+	return m.validatorOptInRouterCaller.AreValidatorsOptedIn(opts, pubkeysBytes)
 }
 
 func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <-chan common.Address, error) {

@@ -303,26 +303,6 @@ func (r *RedisCache) DeleteMevCommitBlockBuilder(builderPubkey common.PubkeyHex)
 	return r.client.HDel(ctx, r.keyMevCommitBlockBuilder, builderPubkey.String()).Err()
 }
 
-func (r *RedisCache) SetMevCommitValidatorRegistration(proposerPubkey common.PubkeyHex) error {
-	err := r.client.Set(context.Background(), r.keyMevCommitValidatorRegistrationHash+":"+proposerPubkey.String(), "1", mevCommitValidatorRegistrationExpiry).Err()
-	if err != nil {
-		return fmt.Errorf("failed to add validator to mev-commit registration: %w", err)
-	}
-	return nil
-}
-
-func (r *RedisCache) IsMevCommitValidatorRegistered(proposerPubkey common.PubkeyHex) (bool, error) {
-	_, err := r.client.Get(context.Background(), r.keyMevCommitValidatorRegistrationHash+":"+proposerPubkey.String()).Result()
-	if err == redis.Nil {
-		return false, nil
-	}
-	if err != nil {
-		return false, fmt.Errorf("failed to check mev-commit validator registration: %w", err)
-	}
-
-	return true, nil
-}
-
 func (r *RedisCache) SetValidatorRegistrationTimestampIfNewer(proposerPubkey common.PubkeyHex, timestamp uint64) error {
 	knownTimestamp, err := r.GetValidatorRegistrationTimestamp(proposerPubkey)
 	if err != nil {

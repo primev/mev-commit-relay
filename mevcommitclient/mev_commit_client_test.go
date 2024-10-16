@@ -43,11 +43,10 @@ func TestGetOptInStatusForValidators(t *testing.T) {
 		common.HexToAddress(providerRegistryAddr),
 	)
 	require.NoError(t, err)
-
 	// Test with some sample public keys
-	pubkeys := [][]byte{
-		{0x01, 0x02, 0x03},
-		{0x04, 0x05, 0x06},
+	pubkeys := []string{
+		"010203",
+		"040506",
 	}
 
 	statuses, err := client.GetOptInStatusForValidators(pubkeys)
