@@ -1051,6 +1051,7 @@ func TestCheckBuilderEntry(t *testing.T) {
 				status: common.BuilderStatus{
 					IsHighPrio: true,
 				},
+				mevCommitOptInStatus: true,
 			},
 			pk:       builderPubkey,
 			expectOk: true,
@@ -1090,8 +1091,11 @@ func TestCheckBuilderEntry(t *testing.T) {
 			w := httptest.NewRecorder()
 			logger := logrus.New()
 			log := logrus.NewEntry(logger)
-			_, ok := backend.relay.checkBuilderEntry(w, log, builderPubkey)
+			entry, ok := backend.relay.checkBuilderEntry(w, log, builderPubkey)
 			require.Equal(t, tc.expectOk, ok)
+			if ok {
+				require.Equal(t, tc.entry.mevCommitOptInStatus, entry.mevCommitOptInStatus)
+			}
 		})
 	}
 }
