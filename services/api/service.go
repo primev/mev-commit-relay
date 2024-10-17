@@ -1764,7 +1764,6 @@ func (api *RelayAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 					return false
 				}
 				if !isBuilderRegistered {
-					// TODO: Implement caching strategy for builder registration status
 					api.RespondError(w, http.StatusBadRequest, "Builder pubkey is not registered under mev-commit")
 					return false
 				}
