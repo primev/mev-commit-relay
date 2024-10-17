@@ -1757,11 +1757,6 @@ func (api *RelayAPI) checkSubmissionSlotDetails(w http.ResponseWriter, log *logr
 		if duty.IsMevCommitValidator {
 			builderCacheEntry, ok := api.blockBuildersCache[submission.BidTrace.BuilderPubkey.String()]
 			if !ok {
-				log.Info("builder not found in cache")
-				api.RespondError(w, http.StatusBadRequest, "builder not found in cache")
-				return false
-			}
-			if !ok {
 				isBuilderRegistered, err := api.datastore.IsMevCommitBlockBuilder(common.NewPubkeyHex(submission.BidTrace.BuilderPubkey.String()))
 				if err != nil {
 					log.WithError(err).Error("Failed to check builder registration")
