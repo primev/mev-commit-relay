@@ -18,6 +18,7 @@ import (
 	"github.com/ethereum/go-ethereum/ethclient"
 	providerRegistry "github.com/primev/mev-commit/contracts-abi/clients/ProviderRegistry"
 	validatoroptinrouter "github.com/primev/mev-commit/contracts-abi/clients/ValidatorOptInRouter"
+	"github.com/sirupsen/logrus"
 )
 
 type MevCommitProvider struct {
@@ -42,13 +43,14 @@ type MevCommitClient struct {
 	l1Client                   *ethclient.Client
 	mevCommitClient            *ethclient.Client
 	contractAbi                abi.ABI
+	log                        *logrus.Entry
 }
 
 const (
 	abiJSON = `[{"anonymous":false,"inputs":[{"indexed":true,"internalType":"address","name":"builder","type":"address"},{"indexed":false,"internalType":"uint256","name":"value","type":"uint256"},{"indexed":false,"internalType":"bytes","name":"blsPublicKey","type":"bytes"}],"name":"BuilderRegistered","type":"event"},{"inputs":[{"internalType":"address","name":"builder","type":"address"}],"name":"isBuilderValid","outputs":[],"stateMutability":"view","type":"function"}]`
 )
 
-func NewMevCommitClient(l1MainnetURL, mevCommitURL string, validatorRouterAddress, ProviderRegistryAddress common.Address) (IMevCommitClient, error) {
+func NewMevCommitClient(l1MainnetURL, mevCommitURL string, validatorRouterAddress, ProviderRegistryAddress common.Address, log *logrus.Entry) (IMevCommitClient, error) {
 	l1Client, err := ethclient.Dial(l1MainnetURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to L1 Mainnet: %w", err)
@@ -94,6 +96,7 @@ func NewMevCommitClient(l1MainnetURL, mevCommitURL string, validatorRouterAddres
 		l1Client:                   l1Client,
 		mevCommitClient:            mevCommitClient,
 		contractAbi:                contractAbi,
+		log:                        log,
 	}, nil
 }
 
@@ -156,7 +159,7 @@ func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <
 					blockRangeSize = 5000
 				}
 				if err := m.filterEvents(ctx, builderRegistryEventCh, builderUnregisteredEventCh, lastProcessedBlock, lastProcessedBlock+blockRangeSize); err != nil {
-					fmt.Printf("Filter error: %v\n", err)
+					m.log.WithError(err).Error("Filter error")
 					// Mark that we had an error so we reprocess this chunk
 					processingError = true
 					// Exponential backoff with jitter
@@ -175,13 +178,13 @@ func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <
 				// Get current block to ensure we don't process future blocks
 				currentBlock, err := m.mevCommitClient.BlockNumber(context.Background())
 				if err != nil {
-					fmt.Printf("Failed to get current block number: %v\n", err)
+					m.log.WithError(err).Error("Failed to get current block number")
 					processingError = true
 					continue
 				}
 				// If we've caught up to the current block, wait before polling again
 				if lastProcessedBlock >= currentBlock {
-					fmt.Printf("Caught up to current block %d, waiting before next poll\n", currentBlock)
+					m.log.WithField("currentBlock", currentBlock).Info("Caught up to current block, waiting before next poll")
 					lastProcessedBlock = currentBlock - blockRangeSize // Roll back to reprocess last chunk
 					caughtUp = true
 					time.Sleep(time.Second * 12) // Roughly one block time
@@ -210,6 +213,11 @@ func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEvent
 		End:     &toBlock,
 		Context: ctx,
 	}
+
+	m.log.WithFields(logrus.Fields{
+		"fromBlock": fromBlock,
+		"toBlock":   toBlock,
+	}).Debug("Filtering events")
 
 	// Filter BLSKeyAdded events
 	blsKeyEvents, err := m.builderRegistryFilterer.FilterBLSKeyAdded(filterOpts, nil)
@@ -246,7 +254,7 @@ func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEvent
 		default:
 			isValid, err := m.IsBuilderValid(fundsSlashedEvents.Event.Provider)
 			if err != nil {
-				fmt.Printf("failed to check if builder is valid: %v\n", err)
+				m.log.WithError(err).Error("Failed to check if builder is valid")
 				continue
 			}
 			if !isValid {

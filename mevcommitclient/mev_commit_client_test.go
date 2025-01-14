@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -17,12 +18,20 @@ const (
 	validatorOptInRouterAddr = "0x251Fbc993f58cBfDA8Ad7b0278084F915aCE7fc3"
 )
 
+func setupTestLogger() *logrus.Entry {
+	logger := logrus.New()
+	logger.SetLevel(logrus.DebugLevel)
+	return logger.WithField("test", true)
+}
+
 func TestNewMevCommitClient(t *testing.T) {
+	log := setupTestLogger()
 	client, err := NewMevCommitClient(
 		ethereumL1RPC,
 		mevCommitRPC,
 		common.HexToAddress(validatorOptInRouterAddr),
 		common.HexToAddress(providerRegistryAddr),
+		log,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, client)
@@ -34,14 +43,17 @@ func TestNewMevCommitClient(t *testing.T) {
 	assert.Equal(t, mevCommitRPC, mevClient.MevCommitAddress)
 	assert.Equal(t, common.HexToAddress(validatorOptInRouterAddr), mevClient.ValidatorRouterAddress)
 	assert.Equal(t, common.HexToAddress(providerRegistryAddr), mevClient.ProviderRegistryAddress)
+	assert.NotNil(t, mevClient.log)
 }
 
 func TestGetOptInStatusForValidators(t *testing.T) {
+	log := setupTestLogger()
 	client, err := NewMevCommitClient(
 		ethereumL1RPC,
 		mevCommitRPC,
 		common.HexToAddress(validatorOptInRouterAddr),
 		common.HexToAddress(providerRegistryAddr),
+		log,
 	)
 	require.NoError(t, err)
 	// Test with some sample public keys
@@ -66,11 +78,13 @@ func TestListenForBuildersEventsForever(t *testing.T) {
 		t.Skip("Skipping long-running test in short mode")
 	}
 
+	log := setupTestLogger()
 	client, err := NewMevCommitClient(
 		ethereumL1RPC,
 		mevCommitRPC,
 		common.HexToAddress(validatorOptInRouterAddr),
 		common.HexToAddress(providerRegistryAddr),
+		log,
 	)
 	require.NoError(t, err)
 
@@ -109,11 +123,13 @@ func TestListenForBuildersEventsForever(t *testing.T) {
 }
 
 func TestListenForBuildersEvents(t *testing.T) {
+	log := setupTestLogger()
 	client, err := NewMevCommitClient(
 		ethereumL1RPC,
 		mevCommitRPC,
 		common.HexToAddress(validatorOptInRouterAddr),
 		common.HexToAddress(providerRegistryAddr),
+		log,
 	)
 	require.NoError(t, err)
 
@@ -142,11 +158,13 @@ func TestListenForBuildersEvents(t *testing.T) {
 }
 
 func TestGetOptInStatusForSpecificValidator(t *testing.T) {
+	log := setupTestLogger()
 	client, err := NewMevCommitClient(
 		ethereumL1RPC,
 		mevCommitRPC,
 		common.HexToAddress(validatorOptInRouterAddr),
 		common.HexToAddress(providerRegistryAddr),
+		log,
 	)
 	require.NoError(t, err)
 
