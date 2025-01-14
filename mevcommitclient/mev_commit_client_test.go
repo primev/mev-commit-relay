@@ -59,7 +59,6 @@ func TestGetOptInStatusForValidators(t *testing.T) {
 		assert.IsType(t, bool(true), status)
 	}
 }
-
 func TestListenForBuildersEvents(t *testing.T) {
 	client, err := NewMevCommitClient(
 		ethereumL1RPC,
@@ -69,20 +68,28 @@ func TestListenForBuildersEvents(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	builderRegisteredCh, _, err := client.ListenForBuildersEvents()
+	builderRegisteredCh, builderUnregisteredCh, err := client.ListenForBuildersEvents()
 	require.NoError(t, err)
+
+	// Create a channel to signal when we receive an event
+	eventReceived := make(chan struct{})
 
 	go func() {
 		select {
-		case <-builderRegisteredCh:
+		case builder := <-builderRegisteredCh:
+			t.Logf("Builder registered - Address: %v", builder)
+			eventReceived <- struct{}{}
+		case address := <-builderUnregisteredCh:
+			t.Logf("Builder unregistered - Address: %v", address)
+			eventReceived <- struct{}{}
 		case <-time.After(10 * time.Second):
-			t.Log("No events received after 10 seconds")
-			t.Fail()
+			t.Error("Timeout waiting for builder event")
+			eventReceived <- struct{}{}
 		}
 	}()
 
-	time.Sleep(15 * time.Second)
-
+	// Wait for one event
+	<-eventReceived
 }
 
 func TestGetOptInStatusForSpecificValidator(t *testing.T) {

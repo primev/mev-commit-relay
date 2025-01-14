@@ -6,8 +6,11 @@ package mevcommitclient
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
+	"math/rand/v2"
 	"strings"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -50,8 +53,12 @@ func NewMevCommitClient(l1MainnetURL, mevCommitURL string, validatorRouterAddres
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to L1 Mainnet: %w", err)
 	}
-
-	mevCommitClient, err := ethclient.Dial(mevCommitURL)
+	var mevCommitClient *ethclient.Client
+	if strings.HasPrefix(mevCommitURL, "ws") {
+		mevCommitClient, err = ethclient.DialContext(context.Background(), mevCommitURL)
+	} else {
+		mevCommitClient, err = ethclient.Dial(mevCommitURL)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to mev-commit EVM: %w", err)
 	}
@@ -118,120 +125,135 @@ func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys []string) ([]bool,
 	return isOptedIn, nil
 }
 
+const blockRangeSize = 5000
+
 func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <-chan common.Address, error) {
-	latestBlock, err := m.mevCommitClient.BlockNumber(context.Background())
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get latest block number from mev-commit-geth: %w", err)
-	}
-	filterOpts := &bind.FilterOpts{
-		Start:   0,
-		End:     &latestBlock,
-		Context: context.Background(),
-	}
-	watchOpts := &bind.WatchOpts{
-		Start:   &latestBlock,
-		Context: context.Background(),
-	}
 	builderRegistryEventCh := make(chan MevCommitProvider)
 	builderUnregisteredEventCh := make(chan common.Address)
 
-	providerRegisteredIterator, err := m.builderRegistryFilterer.FilterBLSKeyAdded(filterOpts, nil)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to filter ProviderRegistered events: %w", err)
-	}
+	// Create a context with cancellation for cleanup
+	ctx, cancel := context.WithCancel(context.Background())
 
-	providerRegisteredEventCh := make(chan *providerRegistry.ProviderregistryBLSKeyAdded)
-	providerRegisteredSub, err := m.builderRegistryFilterer.WatchBLSKeyAdded(watchOpts, providerRegisteredEventCh, nil)
-	if err != nil {
-		providerRegisteredIterator.Close()
-		return nil, nil, fmt.Errorf("failed to watch ProviderRegistered events: %w", err)
-	}
-
-	providerSlashedIterator, err := m.builderRegistryFilterer.FilterFundsSlashed(filterOpts, nil)
-	if err != nil {
-		providerRegisteredIterator.Close()
-		providerRegisteredSub.Unsubscribe()
-		return nil, nil, fmt.Errorf("failed to filter FundsSlashed events: %w", err)
-	}
-
-	providerSlashedEventCh := make(chan *providerRegistry.ProviderregistryFundsSlashed)
-	providerSlashedSub, err := m.builderRegistryFilterer.WatchFundsSlashed(watchOpts, providerSlashedEventCh, nil)
-	if err != nil {
-		providerRegisteredIterator.Close()
-		providerSlashedIterator.Close()
-		providerRegisteredSub.Unsubscribe()
-		return nil, nil, fmt.Errorf("failed to watch ProviderSlashed events: %w", err)
-	}
-
+	// Start a polling goroutine
 	go func() {
-		defer providerRegisteredIterator.Close()
-		defer providerRegisteredSub.Unsubscribe()
+		defer close(builderRegistryEventCh)
+		defer close(builderUnregisteredEventCh)
+		defer cancel()
 
-		for providerRegisteredIterator.Next() {
-			event := providerRegisteredIterator.Event
-			builderRegistryEventCh <- MevCommitProvider{
-				Pubkey:     event.BlsPublicKey,
-				EOAAddress: event.Provider,
-			}
-		}
-		if err := providerRegisteredIterator.Error(); err != nil {
-			fmt.Printf("error while iterating ProviderRegistered events: %v\n", err)
-		}
+		backoff := time.Second
+		maxBackoff := time.Minute * 2
+
+		// Start from block 0
+		lastProcessedBlock := uint64(0)
+		var processingError bool
 
 		for {
 			select {
-			case err := <-providerRegisteredSub.Err():
-				fmt.Printf("error in ProviderRegistered subscription: %v\n", err)
-				close(builderRegistryEventCh)
+			case <-ctx.Done():
 				return
-			case event := <-providerRegisteredEventCh:
-				builderRegistryEventCh <- MevCommitProvider{
-					Pubkey:     event.BlsPublicKey,
-					EOAAddress: event.Provider,
-				}
-			}
-		}
-	}()
-
-	go func() {
-		defer providerSlashedSub.Unsubscribe()
-		defer providerSlashedIterator.Close()
-
-		for providerSlashedIterator.Next() {
-			event := providerSlashedIterator.Event
-			isValid, err := m.IsBuilderValid(event.Provider)
-			if err != nil {
-				fmt.Printf("failed to check if builder is valid: %v\n", err)
-				continue
-			}
-			if !isValid {
-				builderUnregisteredEventCh <- event.Provider
-			}
-		}
-		if err := providerSlashedIterator.Error(); err != nil {
-			fmt.Printf("error while iterating FundsSlashed events: %v\n", err)
-		}
-
-		for {
-			select {
-			case err := <-providerSlashedSub.Err():
-				fmt.Printf("error while watching ProviderSlashed events: %v\n", err)
-				close(builderUnregisteredEventCh)
-				return
-			case event := <-providerSlashedEventCh:
-				isValid, err := m.IsBuilderValid(event.Provider)
-				if err != nil {
-					fmt.Printf("failed to check if builder is valid: %v\n", err)
+			default:
+				if err := m.filterEvents(ctx, builderRegistryEventCh, builderUnregisteredEventCh, lastProcessedBlock); err != nil {
+					fmt.Printf("Filter error: %v\n", err)
+					// Mark that we had an error so we reprocess this chunk
+					processingError = true
+					// Exponential backoff with jitter
+					jitter := time.Duration(rand.Float64() * float64(backoff/4))
+					time.Sleep(backoff + jitter)
+					backoff = time.Duration(math.Min(float64(backoff*2), float64(maxBackoff)))
 					continue
 				}
-				if !isValid {
-					builderUnregisteredEventCh <- event.Provider
+
+				// Only advance the block range if we successfully processed without errors
+				if !processingError {
+					lastProcessedBlock += blockRangeSize
 				}
+				processingError = false
+
+				// Get current block to ensure we don't process future blocks
+				currentBlock, err := m.l1Client.BlockNumber(context.Background())
+				if err != nil {
+					fmt.Printf("Failed to get current block number: %v\n", err)
+					processingError = true
+					continue
+				}
+
+				// If we've caught up to the current block, wait before polling again
+				if lastProcessedBlock >= currentBlock {
+					lastProcessedBlock = currentBlock - blockRangeSize // Roll back to reprocess last chunk
+					time.Sleep(time.Second * 12)                       // Roughly one block time
+				}
+
+				// Reset backoff on successful filtering
+				backoff = time.Second
 			}
 		}
 	}()
 
 	return builderRegistryEventCh, builderUnregisteredEventCh, nil
+}
+
+func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEventCh chan MevCommitProvider, builderUnregisteredEventCh chan common.Address, fromBlock uint64) error {
+	// Calculate block range
+	toBlock := fromBlock + blockRangeSize
+	currentBlock, err := m.l1Client.BlockNumber(context.Background())
+	if err != nil {
+		return fmt.Errorf("failed to get current block number: %w", err)
+	}
+	if toBlock > currentBlock {
+		toBlock = currentBlock
+	}
+
+	filterOpts := &bind.FilterOpts{
+		Start:   fromBlock,
+		End:     &toBlock,
+		Context: ctx,
+	}
+
+	// Filter BLSKeyAdded events
+	blsKeyEvents, err := m.builderRegistryFilterer.FilterBLSKeyAdded(filterOpts, nil)
+	if err != nil {
+		return fmt.Errorf("failed to filter BLSKeyAdded events: %w", err)
+	}
+	defer blsKeyEvents.Close()
+
+	// Filter FundsSlashed events
+	fundsSlashedEvents, err := m.builderRegistryFilterer.FilterFundsSlashed(filterOpts, nil)
+	if err != nil {
+		return fmt.Errorf("failed to filter FundsSlashed events: %w", err)
+	}
+	defer fundsSlashedEvents.Close()
+
+	// Process BLSKeyAdded events
+	for blsKeyEvents.Next() {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			builderRegistryEventCh <- MevCommitProvider{
+				Pubkey:     blsKeyEvents.Event.BlsPublicKey,
+				EOAAddress: blsKeyEvents.Event.Provider,
+			}
+		}
+	}
+
+	// Process FundsSlashed events
+	for fundsSlashedEvents.Next() {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+			isValid, err := m.IsBuilderValid(fundsSlashedEvents.Event.Provider)
+			if err != nil {
+				fmt.Printf("failed to check if builder is valid: %v\n", err)
+				continue
+			}
+			if !isValid {
+				builderUnregisteredEventCh <- fundsSlashedEvents.Event.Provider
+			}
+		}
+	}
+
+	return nil
 }
 
 func (m *MevCommitClient) IsBuilderValid(builderAddress common.Address) (bool, error) {
