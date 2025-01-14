@@ -125,11 +125,10 @@ func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys []string) ([]bool,
 	return isOptedIn, nil
 }
 
-const blockRangeSize = 5000
-
 func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <-chan common.Address, error) {
 	builderRegistryEventCh := make(chan MevCommitProvider)
 	builderUnregisteredEventCh := make(chan common.Address)
+	var blockRangeSize uint64 = 500000
 
 	// Create a context with cancellation for cleanup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -146,13 +145,17 @@ func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <
 		// Start from block 0
 		lastProcessedBlock := uint64(0)
 		var processingError bool
+		var caughtUp bool
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			default:
-				if err := m.filterEvents(ctx, builderRegistryEventCh, builderUnregisteredEventCh, lastProcessedBlock); err != nil {
+				if caughtUp {
+					blockRangeSize = 5000
+				}
+				if err := m.filterEvents(ctx, builderRegistryEventCh, builderUnregisteredEventCh, lastProcessedBlock, lastProcessedBlock+blockRangeSize); err != nil {
 					fmt.Printf("Filter error: %v\n", err)
 					// Mark that we had an error so we reprocess this chunk
 					processingError = true
@@ -169,20 +172,22 @@ func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <
 				}
 				processingError = false
 
+				fmt.Printf("Successfully processed blocks %d to %d\n", lastProcessedBlock, lastProcessedBlock+blockRangeSize)
+
 				// Get current block to ensure we don't process future blocks
-				currentBlock, err := m.l1Client.BlockNumber(context.Background())
+				currentBlock, err := m.mevCommitClient.BlockNumber(context.Background())
 				if err != nil {
 					fmt.Printf("Failed to get current block number: %v\n", err)
 					processingError = true
 					continue
 				}
-
 				// If we've caught up to the current block, wait before polling again
 				if lastProcessedBlock >= currentBlock {
+					fmt.Printf("Caught up to current block %d, waiting before next poll\n", currentBlock)
 					lastProcessedBlock = currentBlock - blockRangeSize // Roll back to reprocess last chunk
-					time.Sleep(time.Second * 12)                       // Roughly one block time
+					caughtUp = true
+					time.Sleep(time.Second * 12) // Roughly one block time
 				}
-
 				// Reset backoff on successful filtering
 				backoff = time.Second
 			}
@@ -192,10 +197,9 @@ func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <
 	return builderRegistryEventCh, builderUnregisteredEventCh, nil
 }
 
-func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEventCh chan MevCommitProvider, builderUnregisteredEventCh chan common.Address, fromBlock uint64) error {
+func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEventCh chan MevCommitProvider, builderUnregisteredEventCh chan common.Address, fromBlock uint64, toBlock uint64) error {
 	// Calculate block range
-	toBlock := fromBlock + blockRangeSize
-	currentBlock, err := m.l1Client.BlockNumber(context.Background())
+	currentBlock, err := m.mevCommitClient.BlockNumber(context.Background())
 	if err != nil {
 		return fmt.Errorf("failed to get current block number: %w", err)
 	}
@@ -208,7 +212,7 @@ func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEvent
 		End:     &toBlock,
 		Context: ctx,
 	}
-
+	fmt.Printf("Filtering events from block %d to %d\n", fromBlock, toBlock)
 	// Filter BLSKeyAdded events
 	blsKeyEvents, err := m.builderRegistryFilterer.FilterBLSKeyAdded(filterOpts, nil)
 	if err != nil {
