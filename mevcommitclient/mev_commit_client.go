@@ -210,7 +210,7 @@ func (m *MevCommitClient) filterEvents(ctx context.Context, builderRegistryEvent
 		End:     &toBlock,
 		Context: ctx,
 	}
-	fmt.Printf("Filtering events from block %d to %d\n", fromBlock, toBlock)
+
 	// Filter BLSKeyAdded events
 	blsKeyEvents, err := m.builderRegistryFilterer.FilterBLSKeyAdded(filterOpts, nil)
 	if err != nil {
