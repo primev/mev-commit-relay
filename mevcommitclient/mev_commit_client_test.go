@@ -102,7 +102,7 @@ func TestListenForBuildersEventsForever(t *testing.T) {
 	}()
 
 	// Let it run for a while
-	time.Sleep(120 * time.Second)
+	time.Sleep(1200 * time.Second)
 
 	t.Logf("Total registered builders: %d", len(registeredBuilders))
 	t.Logf("Total unregistered builders: %d", len(unregisteredBuilders))

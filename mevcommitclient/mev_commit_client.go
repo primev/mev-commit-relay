@@ -128,7 +128,7 @@ func (m *MevCommitClient) GetOptInStatusForValidators(pubkeys []string) ([]bool,
 func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <-chan common.Address, error) {
 	builderRegistryEventCh := make(chan MevCommitProvider)
 	builderUnregisteredEventCh := make(chan common.Address)
-	var blockRangeSize uint64 = 500000
+	var blockRangeSize uint64 = 50000
 
 	// Create a context with cancellation for cleanup
 	ctx, cancel := context.WithCancel(context.Background())
@@ -171,8 +171,6 @@ func (m *MevCommitClient) ListenForBuildersEvents() (<-chan MevCommitProvider, <
 					lastProcessedBlock += blockRangeSize
 				}
 				processingError = false
-
-				fmt.Printf("Successfully processed blocks %d to %d\n", lastProcessedBlock, lastProcessedBlock+blockRangeSize)
 
 				// Get current block to ensure we don't process future blocks
 				currentBlock, err := m.mevCommitClient.BlockNumber(context.Background())
